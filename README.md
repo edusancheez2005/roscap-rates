@@ -17,23 +17,20 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
 - `webflow-footer-script.html`: the replacement for the Xano block in the Home page's footer code
   (not part of the repo; it goes into Webflow).
 
-## Setting it up (Edu, about 15 minutes, once)
+## Where it lives (set up 17 October 2026)
 
-1. On github.com, create a free organisation named `roscap` (optional but keeps it off a personal
-   account; add Clemente as an owner). Inside it, create a new repository `roscap-rates`, **Public**,
-   no README.
-2. Add the files. "Add file" > "Upload files" for `fetch_rates.py` and `rates.json`. For the workflow,
-   "Add file" > "Create new file", type the name `.github/workflows/update-rates.yml` (GitHub creates
-   the folders), paste the contents, commit.
-3. Settings > Pages > Build and deployment > Source "Deploy from a branch" > branch `main`, folder
-   `/ (root)` > Save. After a minute the file is live at
-   `https://roscap.github.io/roscap-rates/rates.json` (replace `roscap` with the organisation or
-   user name you used).
-4. Actions tab > "Update rates" > "Run workflow". If the run fails on the push step with a
-   permission error: Settings > Actions > General > Workflow permissions > "Read and write
-   permissions" > Save, then run it again.
-5. Send the `rates.json` address to Claude. The Webflow footer script gets switched from the Xano
-   address to this one, the "Updated" line is added, and the section goes live on the next publish.
+- Repository: https://github.com/edusancheez2005/roscap-rates (public, Edu's account)
+- The file the website reads: https://edusancheez2005.github.io/roscap-rates/rates.json
+- Runs: https://github.com/edusancheez2005/roscap-rates/actions (each run shows the numbers it wrote)
+- First run on GitHub's machines: 17 Oct 2026 13:02 UTC, success. The address serves JSON with
+  `access-control-allow-origin: *`, so the website can read it.
+
+## Checking it is alive
+
+Open the Actions page above. A green tick twice a day means it is working. Open the rates.json address
+and look at `updated`; if it is more than a day old, press "Run workflow" on the Actions page and read
+the log of that run. To move the feed to a Roscap organisation later: GitHub repository Settings >
+Transfer ownership; then change the address in the Webflow footer script to match.
 
 ## What the numbers mean
 
