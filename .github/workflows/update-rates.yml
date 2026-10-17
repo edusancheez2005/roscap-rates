@@ -22,7 +22,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The script always writes rates.json (keeping last good values for any source that failed)
+      # and exits non-zero if a source failed. continue-on-error lets the commit step still run.
       - name: Fetch the three rates
+        id: fetch
+        continue-on-error: true
         run: python fetch_rates.py
 
       - name: Commit rates.json if anything changed
@@ -36,3 +40,11 @@ jobs:
             git commit -m "Update rates $(date -u +%Y-%m-%d\ %H:%M) UTC"
             git push
           fi
+
+      # Turn the run red (GitHub emails the repository owner) when a source failed, after the
+      # last good values have been committed, so the website never goes blank.
+      - name: Flag a failed source
+        if: steps.fetch.outcome == 'failure'
+        run: |
+          echo "::error::At least one rate source could not be read. Last good values were kept and the Updated date was held back. See the Fetch step log."
+          exit 1

@@ -40,6 +40,9 @@ Transfer ownership; then change the address in the Webflow footer script to matc
 
 ## Things to know
 
+- If a source cannot be read, the script keeps that rate's last good value, marks it `stale`, holds the
+  `updated` date back to the last time all three were fresh, and the GitHub run turns red (GitHub emails the
+  repository owner). The website keeps showing the last good numbers meanwhile.
 - Scheduled jobs on GitHub pause after 60 days without any commit. Euribor changes most days, so the
   job commits most days and this does not arise; if it ever does, the "Run workflow" button restarts it.
 - The organisation that publishes Euribor states that redisplaying it on a commercial site needs a

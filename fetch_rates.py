@@ -148,30 +148,40 @@ def main():
         except Exception:
             previous = {}
 
+    now = dt.datetime.now(dt.timezone.utc)
+    stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     rates, failures = {}, []
     for key, fn in (("boe", boe), ("fed", fed), ("euribor", euribor)):
         try:
-            rates[key] = dict(fn(), stale=False)
+            rates[key] = dict(fn(), stale=False, fetched_at=stamp)
         except Exception as e:  # keep the last good values rather than publishing nothing
             failures.append(f"{key}: {e}")
             if key in previous:
-                rates[key] = dict(previous[key], stale=True)
+                rates[key] = dict(previous[key], stale=True)  # keeps its old fetched_at
 
     if not rates:
         print("No rates fetched and no previous file to fall back on", file=sys.stderr)
         sys.exit(1)
 
-    now = dt.datetime.now(dt.timezone.utc)
+    # "Updated" on the website means "all three numbers were last refreshed at this time", so it is
+    # the OLDEST successful fetch among the three. A stale rate therefore holds the date back.
+    oldest = min(r.get("fetched_at", stamp) for r in rates.values())
+    oldest_dt = dt.datetime.strptime(oldest, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
     out = {
-        "updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "updated_display": now.strftime("%-d %B %Y"),
+        "updated": oldest,
+        "updated_display": oldest_dt.strftime("%-d %B %Y"),
+        "checked": stamp,
+        "stale": [k for k, v in rates.items() if v.get("stale")],
         "rates": rates,
         "notes": "Change for the Fed and Bank of England is the size of the last policy decision; for Euribor it is the move since the previous daily fixing.",
     }
     OUT.write_text(json.dumps(out, indent=2) + "\n")
+    print(f"wrote {OUT.name}: " + ", ".join(f"{k} {v['display']} ({v['change_display']})" for k, v in rates.items()))
     for f in failures:
         print("WARNING " + f, file=sys.stderr)
-    print(f"wrote {OUT.name}: " + ", ".join(f"{k} {v['display']} ({v['change_display']})" for k, v in rates.items()))
+    if failures:  # the file is written; a non-zero exit makes the GitHub run show red so someone looks
+        sys.exit(2)
 
 
 if __name__ == "__main__":
