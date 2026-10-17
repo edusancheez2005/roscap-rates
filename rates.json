@@ -1,8 +1,10 @@
 {
   "updated": "2026-10-17T14:10:04Z",
   "updated_display": "17 October 2026",
-  "checked": "2026-10-17T14:10:04Z",
-  "stale": [],
+  "checked": "2026-10-17T14:12:28Z",
+  "stale": [
+    "euribor"
+  ],
   "rates": {
     "boe": {
       "name": "Bank of England Base Rate",
@@ -15,7 +17,7 @@
       "changed_on": "2025-12-18",
       "source": "Bank of England, Bank Rate history",
       "stale": false,
-      "fetched_at": "2026-10-17T14:10:04Z"
+      "fetched_at": "2026-10-17T14:12:28Z"
     },
     "fed": {
       "name": "US Federal Funds Rate",
@@ -30,7 +32,7 @@
       "changed_on": "2026-09-17",
       "source": "Federal Reserve target range, via FRED (DFEDTARU, DFEDTARL)",
       "stale": false,
-      "fetched_at": "2026-10-17T14:10:04Z"
+      "fetched_at": "2026-10-17T14:12:28Z"
     },
     "euribor": {
       "name": "EURIBOR 3-Month",
@@ -42,7 +44,7 @@
       "as_of": "2026-10-16",
       "changed_on": "2026-10-16",
       "source": "Euribor 3-month daily fixing, via euribor-rates.eu",
-      "stale": false,
+      "stale": true,
       "fetched_at": "2026-10-17T14:10:04Z"
     }
   },
