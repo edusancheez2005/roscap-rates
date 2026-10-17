@@ -2,15 +2,22 @@ name: Update rates
 
 # Runs twice a day. Times are UTC: 12:30 UTC catches the Bank of England (12:00 UK) and
 # the morning Euribor fixing; 19:30 UTC catches Federal Reserve decisions (14:00 New York).
-# The "workflow_dispatch" line adds a "Run workflow" button for manual runs.
+# "Run workflow" on the Actions page runs it by hand; the optional box lets you pretend a
+# source is down to test the alert path (type boe, fed or euribor).
 on:
   schedule:
     - cron: "30 12 * * *"
     - cron: "30 19 * * *"
   workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: "Test the alert: pretend this source is down (boe, fed or euribor). Leave empty for a normal run."
+        required: false
+        default: ""
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   update:
@@ -27,6 +34,8 @@ jobs:
       - name: Fetch the three rates
         id: fetch
         continue-on-error: true
+        env:
+          RATES_SIMULATE_FAIL: ${{ github.event.inputs.simulate_failure }}
         run: python fetch_rates.py
 
       - name: Commit rates.json if anything changed
@@ -41,10 +50,22 @@ jobs:
             git push
           fi
 
-      # Turn the run red (GitHub emails the repository owner) when a source failed, after the
-      # last good values have been committed, so the website never goes blank.
-      - name: Flag a failed source
+      # When a source failed: open a GitHub issue (or add to the open one), which emails the
+      # repository owner, then turn the run red, which sends GitHub's own failure email too.
+      # The website keeps showing the last good values throughout.
+      - name: Alert by GitHub issue and fail the run
         if: steps.fetch.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          echo "::error::At least one rate source could not be read. Last good values were kept and the Updated date was held back. See the Fetch step log."
+          TITLE="Rates feed: a source could not be read"
+          BODY="The update at $(date -u +'%Y-%m-%d %H:%M') UTC could not read at least one of the three rate sources. The website keeps showing the last good values and the Updated date is held back. Open the run log to see which source and why: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          NUM=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
+          echo "::error::$BODY"
           exit 1

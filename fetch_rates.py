@@ -16,6 +16,7 @@ previous values from the existing rates.json and mark it stale; never write zero
 import datetime as dt
 import html
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -151,9 +152,14 @@ def main():
     now = dt.datetime.now(dt.timezone.utc)
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # RATES_SIMULATE_FAIL=euribor (or boe / fed) pretends that source is down, to test the alert path.
+    simulate = os.environ.get("RATES_SIMULATE_FAIL", "").strip().lower()
+
     rates, failures = {}, []
     for key, fn in (("boe", boe), ("fed", fed), ("euribor", euribor)):
         try:
+            if key == simulate:
+                raise RuntimeError("simulated outage requested by RATES_SIMULATE_FAIL (test, not a real failure)")
             rates[key] = dict(fn(), stale=False, fetched_at=stamp)
         except Exception as e:  # keep the last good values rather than publishing nothing
             failures.append(f"{key}: {e}")
