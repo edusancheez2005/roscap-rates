@@ -1,0 +1,38 @@
+name: Update rates
+
+# Runs twice a day. Times are UTC: 12:30 UTC catches the Bank of England (12:00 UK) and
+# the morning Euribor fixing; 19:30 UTC catches Federal Reserve decisions (14:00 New York).
+# The "workflow_dispatch" line adds a "Run workflow" button for manual runs.
+on:
+  schedule:
+    - cron: "30 12 * * *"
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the three rates
+        run: python fetch_rates.py
+
+      - name: Commit rates.json if anything changed
+        run: |
+          git config user.name "roscap-rates-bot"
+          git config user.email "roscap-rates-bot@users.noreply.github.com"
+          git add rates.json
+          if git diff --cached --quiet; then
+            echo "No change in rates.json"
+          else
+            git commit -m "Update rates $(date -u +%Y-%m-%d\ %H:%M) UTC"
+            git push
+          fi
