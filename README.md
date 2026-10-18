@@ -12,7 +12,7 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
 - `fetch_rates.py`: the program. Standard library only. Downloads FRED (Fed target range), the Bank
   of England's Bank Rate history page, and the Euribor 3-month daily table, works out the change,
   and writes `rates.json`. If one source fails, it keeps that rate's last good value and marks it stale.
-- `.github/workflows/update-rates.yml`: the timer. 12:30 and 19:30 UTC daily, plus a manual button.
+- `.github/workflows/update-rates.yml`: the timer. Every three hours at 47 minutes past (UTC), plus a manual button. GitHub can start scheduled jobs late, sometimes by hours, so the job runs often; it only commits when something changed.
 - `rates.json`: the output the website reads.
 - `webflow-footer-script.html`: the replacement for the Xano block in the Home page's footer code
   (not part of the repo; it goes into Webflow).
@@ -48,4 +48,4 @@ Transfer ownership; then change the address in the Webflow footer script to matc
 - The organisation that publishes Euribor states that redisplaying it on a commercial site needs a
   licence. Many sites redisplay it regardless. Roscap's call, not a technical matter.
 - "Real time" here means the same day. The Fed and the Bank move eight times a year at announced
-  times; Euribor publishes once a day around 10:00 UK. The two daily runs catch all of them.
+  times; Euribor publishes once a day around 10:00 UK. The three-hourly runs catch all of them even when GitHub starts a run late.

@@ -1,13 +1,15 @@
 name: Update rates
 
-# Runs twice a day. Times are UTC: 12:30 UTC catches the Bank of England (12:00 UK) and
-# the morning Euribor fixing; 19:30 UTC catches Federal Reserve decisions (14:00 New York).
+# Runs every three hours at 47 minutes past (UTC). GitHub queues scheduled jobs and can start
+# them late, sometimes by hours at busy times (the first scheduled run started two hours late),
+# so running often at an off-peak minute keeps the numbers fresh whatever the delay. The runs
+# around 12:47 and 18:47 UTC catch Bank of England (12:00 UK) and Federal Reserve (14:00 New York)
+# decisions the same day; a run costs nothing and only commits when something changed.
 # "Run workflow" on the Actions page runs it by hand; the optional box lets you pretend a
 # source is down to test the alert path (type boe, fed or euribor).
 on:
   schedule:
-    - cron: "30 12 * * *"
-    - cron: "30 19 * * *"
+    - cron: "47 */3 * * *"
   workflow_dispatch:
     inputs:
       simulate_failure:
