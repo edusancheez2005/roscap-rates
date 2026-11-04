@@ -122,9 +122,11 @@ def euribor():
         if len(cells) >= 2 and re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", cells[0]) and "%" in cells[1]:
             m, d, y = cells[0].split("/")  # the English page uses month/day/year
             rows.append((f"{y}-{int(m):02d}-{int(d):02d}", float(cells[1].replace("%", "").strip())))
+    # The page lists the first fixing of each month and of each year again in two more tables,
+    # so the same date can appear twice: keep one value per date before comparing the last two.
+    rows = sorted(dict(rows).items())
     if len(rows) < 2:
         raise ValueError("Euribor table not found")
-    rows.sort()
     as_of, latest = rows[-1]
     previous = rows[-2][1]
     change = round(latest - previous, 4)
