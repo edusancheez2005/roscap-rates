@@ -6,14 +6,16 @@ name: Update rates
 # around 12:47 and 18:47 UTC catch Bank of England (12:00 UK) and Federal Reserve (14:00 New York)
 # decisions the same day; a run costs nothing and only commits when something changed.
 # "Run workflow" on the Actions page runs it by hand; the optional box lets you pretend a
-# source is down to test the alert path (type boe, fed or euribor).
+# source is down. boe, fed or euribor: that rate cannot be read at all (tests the alert).
+# euribor-site, euribor-bundesbank or euribor-bde: one Euribor source is down (tests that the
+# next one takes over; no alert, because the rate was still read).
 on:
   schedule:
     - cron: "47 */3 * * *"
   workflow_dispatch:
     inputs:
       simulate_failure:
-        description: "Test the alert: pretend this source is down (boe, fed or euribor). Leave empty for a normal run."
+        description: "Test only: pretend a source is down (boe, fed, euribor, euribor-site, euribor-bundesbank or euribor-bde). Leave empty for a normal run."
         required: false
         default: ""
 
@@ -31,8 +33,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The script always writes rates.json (keeping last good values for any source that failed)
-      # and exits non-zero if a source failed. continue-on-error lets the commit step still run.
+      # The script always writes rates.json (keeping last good values for any rate that could not be
+      # read) and exits non-zero if a rate could not be read. Euribor has three sources: the run only
+      # fails when none of them answers. continue-on-error lets the commit step still run.
       - name: Fetch the three rates
         id: fetch
         continue-on-error: true

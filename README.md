@@ -3,15 +3,17 @@
 Keeps the three reference rates on the roscap.co.uk home page current: Bank of England Base Rate,
 US Federal Funds Rate, EURIBOR 3-Month.
 
-How it works, in one line: GitHub runs `fetch_rates.py` twice a day, the script downloads the
-numbers from their official sources and writes `rates.json`, GitHub serves that file at a public
+How it works, in one line: GitHub runs `fetch_rates.py` every three hours, the script downloads the
+numbers from their sources and writes `rates.json`, GitHub serves that file at a public
 address, and the website's script reads it. Nothing on GitHub has any access to the website.
 
 ## Files
 
 - `fetch_rates.py`: the program. Standard library only. Downloads FRED (Fed target range), the Bank
-  of England's Bank Rate history page, and the Euribor 3-month daily table, works out the change,
-  and writes `rates.json`. If one source fails, it keeps that rate's last good value and marks it stale.
+  of England's Bank Rate history page, and the Euribor 3-month daily fixing (three sources, see below),
+  works out the change, and writes `rates.json`. If a rate cannot be read, it keeps that rate's last
+  good value and marks it stale.
+- `test_fetch_rates.py`: tests for the Euribor part. No network needed: `python -m unittest -v`.
 - `.github/workflows/update-rates.yml`: the timer. Every three hours at 47 minutes past (UTC), plus a manual button. GitHub can start scheduled jobs late, sometimes by hours, so the job runs often; it only commits when something changed.
 - `rates.json`: the output the website reads.
 - `webflow-footer-script.html`: the replacement for the Xano block in the Home page's footer code
@@ -27,10 +29,34 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
 
 ## Checking it is alive
 
-Open the Actions page above. A green tick twice a day means it is working. Open the rates.json address
+Open the Actions page above. A green tick every three hours or so means it is working. Open the rates.json address
 and look at `updated`; if it is more than a day old, press "Run workflow" on the Actions page and read
 the log of that run. To move the feed to a Roscap organisation later: GitHub repository Settings >
 Transfer ownership; then change the address in the Webflow footer script to match.
+
+## Where Euribor comes from (three sources, since 15 November 2026)
+
+The script asks these in order and uses the first that is up to date:
+
+1. **euribor-rates.eu**: shows a fixing the next calendar day (Friday's on Saturday).
+2. **Deutsche Bundesbank** (official series `BBIG1.D.D0.EUR.MMKT.EURIBOR.M03.BID._Z`): shows a fixing
+   on the next working day (Friday's on Monday, around midday UK time).
+3. **Banco de Espana** (official table `ti_1_7.csv`): same delay as the Bundesbank.
+
+Why three: on 13-14 November 2026 euribor-rates.eu moved to new servers and began presenting a security
+certificate from a private authority, which fails verification. The script refused to read it (that is
+the right behaviour: a certificate is how the script knows it is talking to the real site) and Euribor
+stayed on the 12 November fixing, marked stale. With the two central banks behind it, the feed no
+longer depends on one website. When the website's certificate is valid again the script uses it again
+by itself.
+
+What to expect while only the central banks answer: Euribor is one working day behind the website at
+weekends (Friday's fixing appears on Monday), and a couple of hours behind on weekdays. The run log
+says which source was used ("NOTE euribor source not used, ..." lines name the ones that were not),
+and `rates.json` says it in the `source` field. The published fixing never steps back to an older one.
+
+Certificates are always verified. Do not "fix" a certificate error by switching verification off or
+by trusting a site's certificate by hand: the website would then show whatever anyone in between sends.
 
 ## What the numbers mean
 
@@ -40,12 +66,15 @@ Transfer ownership; then change the address in the Webflow footer script to matc
 
 ## Things to know
 
-- If a source cannot be read, the script keeps that rate's last good value, marks it `stale`, holds the
-  `updated` date back to the last time all three were fresh, and the GitHub run turns red (GitHub emails the
-  repository owner). The website keeps showing the last good numbers meanwhile.
+- If a rate cannot be read (for Euribor: from none of its three sources), the script keeps that rate's
+  last good value, marks it `stale`, holds the `updated` date back to the last time all three were fresh,
+  and the GitHub run turns red (GitHub emails the repository owner, and the run adds a comment to the
+  open issue "Rates feed: a source could not be read"). The website keeps showing the last good numbers
+  meanwhile, with "awaiting update" under the rate.
 - Scheduled jobs on GitHub pause after 60 days without any commit. Euribor changes most days, so the
   job commits most days and this does not arise; if it ever does, the "Run workflow" button restarts it.
 - The organisation that publishes Euribor states that redisplaying it on a commercial site needs a
   licence. Many sites redisplay it regardless. Roscap's call, not a technical matter.
-- "Real time" here means the same day. The Fed and the Bank move eight times a year at announced
-  times; Euribor publishes once a day around 10:00 UK. The three-hourly runs catch all of them even when GitHub starts a run late.
+- "Real time" here means the same day for the Fed and the Bank, which move eight times a year at announced
+  times. Euribor is fixed once a day around 10:00 UK and is free to republish only a day later, so the
+  feed shows yesterday's fixing at best. The three-hourly runs catch all of them even when GitHub starts a run late.
