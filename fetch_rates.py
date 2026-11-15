@@ -8,9 +8,10 @@ the resulting file. The visitor's browser never calls the sources directly.
 Sources (public, free, no keys):
   US Federal Funds Rate      FRED CSV, series DFEDTARU (target range upper) and DFEDTARL (lower)
   Bank of England Base Rate  the Bank's own Bank Rate history page
-  EURIBOR 3-Month            daily fixings table on euribor-rates.eu (shows a fixing the next calendar day);
-                             when that cannot be read, the Deutsche Bundesbank's daily series, then the
-                             Banco de Espana's (both show a fixing on the next working day)
+  EURIBOR 3-Month            daily fixings table on euribor-rates.eu; when that cannot be read or is
+                             behind, the Bank of Finland's daily series, then the Deutsche Bundesbank's,
+                             then the Banco de Espana's (the same figure everywhere; the last two show a
+                             fixing on the next working day)
 
 Rules: standard library only; certificates are always verified (a source whose certificate does
 not check out counts as unreadable, it is never read anyway); if a source cannot be read or
@@ -122,18 +123,25 @@ def boe():
 
 
 # ---------------------------------------------------------------------------------------------
-# Euribor 3-month. Three sources, asked in this order; the first that is up to date wins:
+# Euribor 3-month. One benchmark, set once a day by the European Money Markets Institute; every
+# source below republishes that same figure. Four sources, asked in this order:
 #   1. euribor-rates.eu      a fixing appears the next calendar day (Friday's on Saturday)
-#   2. Deutsche Bundesbank   official series, a fixing appears the next working day (Friday's on Monday)
-#   3. Banco de Espana       official table, same delay as the Bundesbank
-# Added on 15 Nov 2026: euribor-rates.eu moved to new servers on 13-14 Nov and began presenting a
+#   2. Bank of Finland       the series behind the Bank's own Euribor page; it had Friday's fixing
+#                            over the weekend (seen on Sunday 15 Nov 2026), ahead of the next two
+#   3. Deutsche Bundesbank   official series, a fixing appears the next working day (Friday's on Monday)
+#   4. Banco de Espana       official table, same delay as the Bundesbank
+# The script stops at the first source that has the fixing due by now (that of the last weekday
+# before today); if none has it, it uses the newest fixing any of them has.
+# History: on 13-14 Nov 2026 euribor-rates.eu moved to new servers and began presenting a
 # certificate from a private authority, which fails verification. The feed refused it, correctly,
-# and Euribor went stale. With the two central banks behind it the feed no longer depends on one
-# website; when the website's certificate is valid again it is used again without any change here.
+# and Euribor went stale. The two central banks at the end were added on 15 Nov so that the feed no
+# longer depends on one website, and the Bank of Finland the same evening because the other two
+# were a working day behind. When the website's certificate is valid again it is used again
+# without any change here.
 EURIBOR_SITE = "https://www.euribor-rates.eu/en/current-euribor-rates/2/euribor-rate-3-months/"
+EURIBOR_FINLAND = "https://www.suomenpankki.fi/api/interestrates/euribor"
 EURIBOR_BUNDESBANK = "https://api.statistiken.bundesbank.de/rest/download/BBIG1/D.D0.EUR.MMKT.EURIBOR.M03.BID._Z?format=csv&lang=en"
 EURIBOR_BDE = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv/ti_1_7.csv"
-FRESH_DAYS = 4  # a latest fixing this recent needs no second opinion (covers a weekend plus a holiday)
 SPANISH_MONTHS = {m: i for i, m in enumerate("ENE FEB MAR ABR MAY JUN JUL AGO SEP OCT NOV DIC".split(), 1)}
 
 
@@ -180,6 +188,22 @@ def euribor_site(today):
     raise ValueError("Euribor table dates not understood (" + "; ".join(problems) + ")")
 
 
+def euribor_finland(today):
+    data = json.loads(get(EURIBOR_FINLAND).lstrip("﻿"))
+    series = data.get("euribor3kk") if isinstance(data, dict) else None  # "3 kk": three months, in Finnish
+    if not isinstance(series, list):
+        raise ValueError("Euribor 3-month series not found")
+    pairs = []
+    for row in series:
+        try:
+            date, value = str(row["date"])[:10], float(row["value"])
+        except (KeyError, TypeError, ValueError):  # a day with no value
+            continue
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            pairs.append((date, value))
+    return clean_fixings(pairs, today)
+
+
 def euribor_bundesbank(today):
     pairs = []
     for line in get(EURIBOR_BUNDESBANK).splitlines():
@@ -217,36 +241,55 @@ def euribor_bde(today):
 
 EURIBOR_SOURCES = (
     ("euribor-rates.eu", "euribor-site", euribor_site),
+    ("Bank of Finland", "euribor-finland", euribor_finland),
     ("Deutsche Bundesbank", "euribor-bundesbank", euribor_bundesbank),
     ("Banco de Espana", "euribor-bde", euribor_bde),
 )
 
 
+def expected_fixing(today):
+    """The fixing that is public by now: that of the last weekday before today (a fixing may be
+    republished free of charge a day after it is set). On a bank holiday there was none, and the
+    script then simply asks every source."""
+    day = today - dt.timedelta(days=1)
+    while day.weekday() > 4:
+        day -= dt.timedelta(days=1)
+    return day.isoformat()
+
+
 def euribor(previous=None, simulate=""):
     today = dt.date.today()
+    expected = expected_fixing(today)
+    held = (previous or {}).get("as_of", "")
+    held_ok = bool(previous) and isinstance(held, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", held)) and held <= today.isoformat()
+    published = previous.get("value") if held_ok else None
     best, skipped = None, []
     for name, key, fn in EURIBOR_SOURCES:
         try:
             if key == simulate:
                 raise RuntimeError("simulated outage requested by RATES_SIMULATE_FAIL (test, not a real failure)")
             rows = fn(today)
+            # Same benchmark, same number: a source that gives another figure for the day already published
+            # here is reading something else (another maturity, a misread page) and is not used.
+            theirs = dict(rows).get(held) if isinstance(published, (int, float)) else None
+            if theirs is not None and abs(theirs - published) > 0.0005:
+                raise ValueError(f"gives {theirs} for {held}, where {published} is already published")
         except Exception as e:
             skipped.append(f"{name}: {e}")
             continue
         if best is None or rows[-1][0] > best[1][-1][0]:
             best = (name, rows)
-        if (today - dt.date.fromisoformat(best[1][-1][0])).days <= FRESH_DAYS:
+        if best[1][-1][0] >= expected:
             break
     for note in skipped:  # shown in the run log; not a failure while another source answered
         print("NOTE euribor source not used, " + note, file=sys.stderr)
     if best is None:
-        raise RuntimeError("no Euribor source could be read (" + "; ".join(skipped) + ")")
+        raise RuntimeError("no Euribor source could be used (" + "; ".join(skipped) + ")")
     name, rows = best
     as_of, latest = rows[-1]
     # Never step back: the website shows a fixing a day or more before the central banks do, so after
     # it fails they can be behind what is already published here. Keep the newer fixing until they catch up.
-    held = (previous or {}).get("as_of", "")
-    if previous and re.fullmatch(r"\d{4}-\d{2}-\d{2}", held) and as_of < held <= today.isoformat():
+    if held_ok and as_of < held:
         print(f"NOTE euribor: {name} is at {as_of}; keeping the {held} fixing already published", file=sys.stderr)
         return {k: v for k, v in previous.items() if k not in ("stale", "fetched_at")}
     change = round(latest - rows[-2][1], 4)
@@ -275,8 +318,8 @@ def main():
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # RATES_SIMULATE_FAIL=euribor (or boe / fed) pretends that rate cannot be read at all, to test the alert
-    # path. euribor-site (or euribor-bundesbank / euribor-bde) pretends one Euribor source is down, to test
-    # that the next one takes over.
+    # path. euribor-site (or euribor-finland / euribor-bundesbank / euribor-bde) pretends one Euribor source
+    # is down, to test that the next one takes over.
     simulate = os.environ.get("RATES_SIMULATE_FAIL", "").strip().lower()
 
     rates, failures = {}, []

@@ -2,6 +2,7 @@
     python -m unittest -v
 """
 import datetime as dt
+import json
 import unittest
 from unittest import mock
 
@@ -51,6 +52,16 @@ BDE_CSV = "\n".join([
     '"12 NOV 2026","2.443","2.479","2.766","3.023"',
     '"FUENTE","","REFINITIV","REFINITIV","REFINITIV"',
 ])
+
+FINLAND_JSON = json.dumps({
+    "euribor1vko": [{"date": "2026-11-11", "value": 2.411}, {"date": "2026-11-12", "value": 2.384}, {"date": "2026-11-13", "value": 2.394}],
+    "euribor1kk": [{"date": "2026-11-11", "value": 2.487}, {"date": "2026-11-12", "value": 2.479}, {"date": "2026-11-13", "value": 2.482}],
+    "euribor3kk": [{"date": "2026-11-11", "value": 2.754}, {"date": "2026-11-12", "value": 2.766}, {"date": "2026-11-13", "value": 2.775}],
+    "euribor6kk": [{"date": "2026-11-11", "value": 3.01}, {"date": "2026-11-12", "value": 3.023}, {"date": "2026-11-13", "value": 3.015}],
+    "euribor12kk": [{"date": "2026-11-11", "value": 3.222}, {"date": "2026-11-12", "value": 3.293}, {"date": "2026-11-13", "value": 3.328}],
+    "euroSTR": [],
+    "errors": {"capacity": 16, "maxCapacity": 2147483647, "length": 0},
+})
 
 
 class CleanFixings(unittest.TestCase):
@@ -147,69 +158,162 @@ class CentralBanks(unittest.TestCase):
                 fr.euribor_bde(TODAY)
 
 
-class Choosing(unittest.TestCase):
-    """euribor(): which source is used, and that the published fixing never steps back."""
-    SITE = [("2026-11-12", 2.766), ("2026-11-13", 2.775)]
-    BANK = [("2026-11-11", 2.754), ("2026-11-12", 2.766)]
+class BankOfFinland(unittest.TestCase):
+    def read(self, text, today=TODAY):
+        with mock.patch.object(fr, "get", return_value=text):
+            return fr.euribor_finland(today)
 
-    def run_with(self, site, bundesbank, bde, previous=None, simulate=""):
+    def test_three_month_series_and_no_other(self):
+        self.assertEqual(self.read(FINLAND_JSON), [("2026-11-11", 2.754), ("2026-11-12", 2.766), ("2026-11-13", 2.775)])
+
+    def test_answer_that_starts_with_a_byte_order_mark(self):
+        self.assertEqual(self.read("\ufeff" + FINLAND_JSON)[-1], ("2026-11-13", 2.775))
+
+    def test_day_without_a_value_is_left_out(self):
+        data = json.loads(FINLAND_JSON)
+        data["euribor3kk"].append({"date": "2026-11-14", "value": None})
+        self.assertEqual(self.read(json.dumps(data))[-1], ("2026-11-13", 2.775))
+
+    def test_answer_without_the_three_month_series(self):
+        data = json.loads(FINLAND_JSON)
+        del data["euribor3kk"]
+        for text in (json.dumps(data), "[]", "<html><body>Maintenance</body></html>"):
+            with self.assertRaises(ValueError):
+                self.read(text)
+
+
+class Choosing(unittest.TestCase):
+    """euribor(): which source is used, that a source must agree with what is already published,
+    and that the published fixing never steps back."""
+    NEW = [("2026-11-12", 2.766), ("2026-11-13", 2.775)]   # has Friday's fixing, the one due on Sunday 15 Nov
+    OLD = [("2026-11-11", 2.754), ("2026-11-12", 2.766)]   # a working day behind
+    DOWN = OSError("CERTIFICATE_VERIFY_FAILED")
+    THURSDAY = {"name": "EURIBOR 3-Month", "value": 2.766, "display": "2.766%", "change": 0.012, "change_display": "+0.012%",
+                "as_of": "2026-11-12", "changed_on": "2026-11-12", "source": "Euribor 3-month daily fixing, via Deutsche Bundesbank",
+                "stale": False, "fetched_at": "2026-11-15T18:31:15Z"}
+
+    def run_with(self, site, finland, bundesbank, bde, previous=None, simulate="", today=TODAY):
         def source(result):
             m = mock.Mock()
             m.side_effect = result if isinstance(result, Exception) else None
             m.return_value = None if isinstance(result, Exception) else result
             return m
-        s, b, e = source(site), source(bundesbank), source(bde)
-        sources = (("euribor-rates.eu", "euribor-site", s), ("Deutsche Bundesbank", "euribor-bundesbank", b), ("Banco de Espana", "euribor-bde", e))
+        mocks = [source(x) for x in (site, finland, bundesbank, bde)]
+        names = (("euribor-rates.eu", "euribor-site"), ("Bank of Finland", "euribor-finland"),
+                 ("Deutsche Bundesbank", "euribor-bundesbank"), ("Banco de Espana", "euribor-bde"))
+        sources = tuple((n, k, m) for (n, k), m in zip(names, mocks))
         with mock.patch.object(fr, "EURIBOR_SOURCES", sources), mock.patch.object(fr.dt, "date", wraps=dt.date) as d:
-            d.today.return_value = TODAY
-            return fr.euribor(previous, simulate), (s.call_count, b.call_count, e.call_count)
+            d.today.return_value = today
+            return fr.euribor(previous, simulate), tuple(m.call_count for m in mocks)
+
+    def test_the_real_list_of_sources(self):
+        self.assertEqual([key for _, key, _ in fr.EURIBOR_SOURCES], ["euribor-site", "euribor-finland", "euribor-bundesbank", "euribor-bde"])
+
+    def test_fixing_due_by_now(self):
+        for today, due in (("2026-11-13", "2026-11-12"), ("2026-11-14", "2026-11-13"), ("2026-11-15", "2026-11-13"),
+                           ("2026-11-16", "2026-11-13"), ("2026-11-17", "2026-11-16"), ("2027-01-01", "2026-12-31")):
+            self.assertEqual(fr.expected_fixing(dt.date.fromisoformat(today)), due, today)
 
     def test_website_when_it_answers(self):
-        out, calls = self.run_with(self.SITE, self.BANK, self.BANK)
+        out, calls = self.run_with(self.NEW, self.NEW, self.OLD, self.OLD)
         self.assertEqual((out["display"], out["change_display"], out["as_of"]), ("2.775%", "+0.009%", "2026-11-13"))
         self.assertIn("euribor-rates.eu", out["source"])
-        self.assertEqual(calls, (1, 0, 0))  # up to date, so nobody else is asked
+        self.assertEqual(calls, (1, 0, 0, 0))  # it has the fixing due by now, so nobody else is asked
 
-    def test_bundesbank_when_the_website_certificate_fails(self):
-        out, calls = self.run_with(OSError("CERTIFICATE_VERIFY_FAILED"), self.BANK, self.BANK)
+    def test_sunday_15_november_2026(self):
+        # the evening this was written: the website's certificate fails, Thursday's fixing is published
+        # (from the Bundesbank), and the Bank of Finland already has Friday's
+        out, calls = self.run_with(self.DOWN, self.NEW, self.OLD, self.OLD, previous=self.THURSDAY)
+        self.assertEqual((out["display"], out["change_display"], out["as_of"]), ("2.775%", "+0.009%", "2026-11-13"))
+        self.assertEqual(out["source"], "Euribor 3-month daily fixing, via Bank of Finland")
+        self.assertEqual(calls, (1, 1, 0, 0))
+
+    def test_central_banks_when_the_first_two_fail(self):
+        out, calls = self.run_with(self.DOWN, OSError("down"), self.OLD, self.OLD)
         self.assertEqual((out["display"], out["change_display"], out["as_of"]), ("2.766%", "+0.012%", "2026-11-12"))
         self.assertIn("Deutsche Bundesbank", out["source"])
-        self.assertEqual(calls, (1, 1, 0))
+        self.assertEqual(calls, (1, 1, 1, 1))  # the Bundesbank is behind, so the last one is asked as well
 
-    def test_banco_de_espana_when_both_others_fail(self):
-        out, calls = self.run_with(OSError("down"), OSError("down"), self.BANK)
+    def test_banco_de_espana_when_all_others_fail(self):
+        out, calls = self.run_with(OSError("down"), OSError("down"), OSError("down"), self.OLD)
         self.assertIn("Banco de Espana", out["source"])
-        self.assertEqual(calls, (1, 1, 1))
+        self.assertEqual(calls, (1, 1, 1, 1))
+
+    def test_goes_on_until_a_source_has_the_fixing_due(self):
+        out, calls = self.run_with(self.DOWN, self.OLD, self.NEW, self.OLD)
+        self.assertEqual(out["as_of"], "2026-11-13")
+        self.assertIn("Deutsche Bundesbank", out["source"])
+        self.assertEqual(calls, (1, 1, 1, 0))
+
+    def test_nobody_has_the_fixing_due_the_newest_is_used_and_the_first_listed_wins_a_tie(self):
+        older = [("2026-11-10", 2.738), ("2026-11-11", 2.754)]
+        out, calls = self.run_with(older, self.OLD, self.OLD, self.OLD)
+        self.assertEqual(out["as_of"], "2026-11-12")
+        self.assertIn("Bank of Finland", out["source"])
+        self.assertEqual(calls, (1, 1, 1, 1))
 
     def test_no_source_at_all_is_a_failure(self):
         with self.assertRaises(RuntimeError):
-            self.run_with(OSError("a"), OSError("b"), OSError("c"))
+            self.run_with(OSError("a"), OSError("b"), OSError("c"), OSError("d"))
 
     def test_never_steps_back(self):
         published = {"name": "EURIBOR 3-Month", "value": 2.775, "display": "2.775%", "change": 0.009, "change_display": "+0.009%",
                      "as_of": "2026-11-13", "changed_on": "2026-11-13", "source": "Euribor 3-month daily fixing, via euribor-rates.eu",
                      "stale": False, "fetched_at": "2026-11-14T10:00:00Z"}
-        out, _ = self.run_with(OSError("CERTIFICATE_VERIFY_FAILED"), self.BANK, self.BANK, previous=published)
+        out, _ = self.run_with(self.DOWN, OSError("down"), self.OLD, self.OLD, previous=published)
         self.assertEqual((out["display"], out["as_of"]), ("2.775%", "2026-11-13"))
+        self.assertIn("euribor-rates.eu", out["source"])
         self.assertNotIn("stale", out)
         self.assertNotIn("fetched_at", out)
 
     def test_a_published_date_in_the_future_is_not_kept(self):
         wrong = {"value": 9.9, "display": "9.900%", "as_of": "2026-12-11", "changed_on": "2026-12-11"}
-        out, _ = self.run_with(OSError("down"), self.BANK, self.BANK, previous=wrong)
+        out, _ = self.run_with(OSError("down"), OSError("down"), self.OLD, self.OLD, previous=wrong)
         self.assertEqual((out["display"], out["as_of"]), ("2.766%", "2026-11-12"))
 
     def test_website_that_stopped_updating(self):
         old = [("2026-11-03", 2.765), ("2026-11-04", 2.759)]
-        out, calls = self.run_with(old, self.BANK, self.BANK)
-        self.assertEqual(out["as_of"], "2026-11-12")
-        self.assertIn("Deutsche Bundesbank", out["source"])
-        self.assertEqual(calls, (1, 1, 0))
+        out, calls = self.run_with(old, self.NEW, self.OLD, self.OLD)
+        self.assertEqual(out["as_of"], "2026-11-13")
+        self.assertIn("Bank of Finland", out["source"])
+        self.assertEqual(calls, (1, 1, 0, 0))
 
     def test_simulated_outage_of_one_source(self):
-        out, calls = self.run_with(self.SITE, self.BANK, self.BANK, simulate="euribor-site")
+        out, calls = self.run_with(self.NEW, self.NEW, self.OLD, self.OLD, simulate="euribor-site")
+        self.assertIn("Bank of Finland", out["source"])
+        self.assertEqual(calls, (0, 1, 0, 0))
+        out, calls = self.run_with(self.DOWN, self.NEW, self.OLD, self.OLD, simulate="euribor-finland")
         self.assertIn("Deutsche Bundesbank", out["source"])
-        self.assertEqual(calls, (0, 1, 0))
+        self.assertEqual(calls, (1, 0, 1, 1))
+
+    def test_a_source_that_disagrees_with_the_published_fixing_is_not_used(self):
+        # as if the first source had served the 6-month rate: its figure for Thursday is not the published one
+        six_month = [("2026-11-12", 3.023), ("2026-11-13", 3.015)]
+        out, calls = self.run_with(six_month, self.NEW, self.OLD, self.OLD, previous=self.THURSDAY)
+        self.assertEqual((out["display"], out["as_of"]), ("2.775%", "2026-11-13"))
+        self.assertIn("Bank of Finland", out["source"])
+        self.assertEqual(calls, (1, 1, 0, 0))
+
+    def test_every_source_disagreeing_is_a_failure(self):
+        six_month = [("2026-11-12", 3.023), ("2026-11-13", 3.015)]
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_with(six_month, six_month, six_month, six_month, previous=self.THURSDAY)
+        self.assertIn("gives 3.023 for 2026-11-12, where 2.766 is already published", str(caught.exception))
+
+    def test_a_source_that_does_not_list_the_published_day_is_used(self):
+        gap = [("2026-11-10", 2.738), ("2026-11-13", 2.775)]
+        out, calls = self.run_with(self.DOWN, gap, self.OLD, self.OLD, previous=self.THURSDAY)
+        self.assertEqual((out["display"], out["as_of"]), ("2.775%", "2026-11-13"))
+        self.assertEqual(calls, (1, 1, 0, 0))
+
+    def test_same_figure_from_another_source_is_accepted(self):
+        # Monday midday: Friday's fixing is published (from the Bank of Finland) and the website is back with the same figure
+        published = dict(self.THURSDAY, value=2.775, display="2.775%", as_of="2026-11-13", changed_on="2026-11-13",
+                         source="Euribor 3-month daily fixing, via Bank of Finland")
+        out, calls = self.run_with(self.NEW, self.NEW, self.OLD, self.OLD, previous=published, today=dt.date(2026, 11, 16))
+        self.assertEqual((out["display"], out["as_of"]), ("2.775%", "2026-11-13"))
+        self.assertIn("euribor-rates.eu", out["source"])
+        self.assertEqual(calls, (1, 0, 0, 0))
 
 
 if __name__ == "__main__":

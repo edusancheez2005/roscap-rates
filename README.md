@@ -10,7 +10,7 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
 ## Files
 
 - `fetch_rates.py`: the program. Standard library only. Downloads FRED (Fed target range), the Bank
-  of England's Bank Rate history page, and the Euribor 3-month daily fixing (three sources, see below),
+  of England's Bank Rate history page, and the Euribor 3-month daily fixing (four sources, see below),
   works out the change, and writes `rates.json`. If a rate cannot be read, it keeps that rate's last
   good value and marks it stale.
 - `test_fetch_rates.py`: tests for the Euribor part. No network needed: `python -m unittest -v`.
@@ -34,26 +34,41 @@ and look at `updated`; if it is more than a day old, press "Run workflow" on the
 the log of that run. To move the feed to a Roscap organisation later: GitHub repository Settings >
 Transfer ownership; then change the address in the Webflow footer script to match.
 
-## Where Euribor comes from (three sources, since 15 November 2026)
+## Where Euribor comes from (four sources, since 15 November 2026)
 
-The script asks these in order and uses the first that is up to date:
+Euribor is one benchmark, set once a day by the European Money Markets Institute. Every source below
+republishes that same figure (checked on 15 November 2026: the fixings of 2 to 12 November are identical
+in all of them, and the two central bank series at the end agree on every fixing of the last twelve months).
+
+The script asks these in order:
 
 1. **euribor-rates.eu**: shows a fixing the next calendar day (Friday's on Saturday).
-2. **Deutsche Bundesbank** (official series `BBIG1.D.D0.EUR.MMKT.EURIBOR.M03.BID._Z`): shows a fixing
+2. **Bank of Finland** (`suomenpankki.fi/api/interestrates/euribor`, the series behind the Bank's own
+   Euribor page; the 3-month series is `euribor3kk`): it had Friday's fixing over the weekend, ahead of
+   the next two.
+3. **Deutsche Bundesbank** (official series `BBIG1.D.D0.EUR.MMKT.EURIBOR.M03.BID._Z`): shows a fixing
    on the next working day (Friday's on Monday, around midday UK time).
-3. **Banco de Espana** (official table `ti_1_7.csv`): same delay as the Bundesbank.
+4. **Banco de Espana** (official table `ti_1_7.csv`): same delay as the Bundesbank.
 
-Why three: on 13-14 November 2026 euribor-rates.eu moved to new servers and began presenting a security
+Which one is used: the script stops at the first source that has the fixing due by now (that of the last
+weekday before today). If none has it, it uses the newest fixing any of them has. The run log says which
+source was used ("NOTE euribor source not used, ..." lines name the ones that were not), and `rates.json`
+says it in the `source` field.
+
+Two safeguards:
+
+- A source must agree with what is already published. If a source gives another figure for the day
+  whose fixing is already in `rates.json`, it is reading something else (another maturity, a misread
+  page) and is not used.
+- The published fixing never steps back to an older one when a slower source takes over.
+
+Why four: on 13-14 November 2026 euribor-rates.eu moved to new servers and began presenting a security
 certificate from a private authority, which fails verification. The script refused to read it (that is
 the right behaviour: a certificate is how the script knows it is talking to the real site) and Euribor
-stayed on the 12 November fixing, marked stale. With the two central banks behind it, the feed no
-longer depends on one website. When the website's certificate is valid again the script uses it again
-by itself.
-
-What to expect while only the central banks answer: Euribor is one working day behind the website at
-weekends (Friday's fixing appears on Monday), and a couple of hours behind on weekdays. The run log
-says which source was used ("NOTE euribor source not used, ..." lines name the ones that were not),
-and `rates.json` says it in the `source` field. The published fixing never steps back to an older one.
+stayed on the 12 November fixing, marked stale. The Bundesbank and the Banco de Espana were added on
+15 November so that the feed no longer depends on one website, and the Bank of Finland the same evening
+because those two were a working day behind. When the website's certificate is valid again the script
+uses it again by itself.
 
 Certificates are always verified. Do not "fix" a certificate error by switching verification off or
 by trusting a site's certificate by hand: the website would then show whatever anyone in between sends.
@@ -66,15 +81,20 @@ by trusting a site's certificate by hand: the website would then show whatever a
 
 ## Things to know
 
-- If a rate cannot be read (for Euribor: from none of its three sources), the script keeps that rate's
+- If a rate cannot be read (for Euribor: from none of its four sources), the script keeps that rate's
   last good value, marks it `stale`, holds the `updated` date back to the last time all three were fresh,
   and the GitHub run turns red (GitHub emails the repository owner, and the run adds a comment to the
   open issue "Rates feed: a source could not be read"). The website keeps showing the last good numbers
   meanwhile, with "awaiting update" under the rate.
 - Scheduled jobs on GitHub pause after 60 days without any commit. Euribor changes most days, so the
   job commits most days and this does not arise; if it ever does, the "Run workflow" button restarts it.
+- If every source disagrees with the Euribor fixing already published (a fixing corrected after the
+  event, or a wrong figure in `rates.json`), the run fails in the same way. Check the figure, then delete
+  the `"euribor"` block from `rates.json` and run again: the script writes it afresh.
 - The organisation that publishes Euribor states that redisplaying it on a commercial site needs a
-  licence. Many sites redisplay it regardless. Roscap's call, not a technical matter.
+  licence. Many sites redisplay it regardless. Roscap's call, not a technical matter. The central banks
+  say the same about their copies: the Bundesbank's series header and the Bank of Finland's Euribor page
+  both state that commercial use needs a licence agreement with the European Money Markets Institute.
 - "Real time" here means the same day for the Fed and the Bank, which move eight times a year at announced
   times. Euribor is fixed once a day around 10:00 UK and is free to republish only a day later, so the
   feed shows yesterday's fixing at best. The three-hourly runs catch all of them even when GitHub starts a run late.
