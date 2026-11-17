@@ -1,10 +1,16 @@
 name: Update rates
 
-# Runs every three hours at 47 minutes past (UTC). GitHub queues scheduled jobs and can start
-# them late, sometimes by hours at busy times (the first scheduled run started two hours late),
-# so running often at an off-peak minute keeps the numbers fresh whatever the delay. The runs
-# around 12:47 and 18:47 UTC catch Bank of England (12:00 UK) and Federal Reserve (14:00 New York)
-# decisions the same day; a run costs nothing and only commits when something changed.
+# Two timers (UTC). GitHub queues scheduled jobs and at busy times starts only some of them:
+# measured over 13 to 17 Nov 2026, it started 10 of the 26 runs the three-hourly timer asked
+# for, on average 8 hours apart and once 12.6 hours apart. So the job asks often and at
+# off-peak minutes; a run costs nothing and takes a quarter of a minute.
+#   - every three hours at 47 minutes past: the base. The runs around 12:47 and 18:47 catch
+#     Bank of England (12:00 UK) and Federal Reserve (14:00 New York) decisions the same day.
+#   - weekdays at 7 and 27 minutes past, 10:00 to 16:59: the hours in which the Euribor sources
+#     publish the previous day's fixing (the Bundesbank around midday on the days watched).
+#     Added on 17 Nov 2026, when Monday's fixing had been public for three hours and no run
+#     had started for eleven.
+# Runs never overlap (the "concurrency" setting below), so two cannot push at the same moment.
 # "Run workflow" on the Actions page runs it by hand; the optional box lets you pretend a
 # source is down. boe, fed or euribor: that rate cannot be read at all (tests the alert).
 # euribor-site, euribor-finland, euribor-bundesbank or euribor-bde: one Euribor source is down
@@ -12,6 +18,7 @@ name: Update rates
 on:
   schedule:
     - cron: "47 */3 * * *"
+    - cron: "7,27 10-16 * * 1-5"
   workflow_dispatch:
     inputs:
       simulate_failure:
@@ -22,6 +29,10 @@ on:
 permissions:
   contents: write
   issues: write
+
+concurrency:
+  group: update-rates
+  cancel-in-progress: false
 
 jobs:
   update:

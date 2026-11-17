@@ -3,7 +3,7 @@
 Keeps the three reference rates on the roscap.co.uk home page current: Bank of England Base Rate,
 US Federal Funds Rate, EURIBOR 3-Month.
 
-How it works, in one line: GitHub runs `fetch_rates.py` every three hours, the script downloads the
+How it works, in one line: GitHub runs `fetch_rates.py` several times a day, the script downloads the
 numbers from their sources and writes `rates.json`, GitHub serves that file at a public
 address, and the website's script reads it. Nothing on GitHub has any access to the website.
 
@@ -14,7 +14,7 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
   works out the change, and writes `rates.json`. If a rate cannot be read, it keeps that rate's last
   good value and marks it stale.
 - `test_fetch_rates.py`: tests for the Euribor part. No network needed: `python -m unittest -v`.
-- `.github/workflows/update-rates.yml`: the timer. Every three hours at 47 minutes past (UTC), plus a manual button. GitHub can start scheduled jobs late, sometimes by hours, so the job runs often; it only commits when something changed.
+- `.github/workflows/update-rates.yml`: the timer, plus a manual button. It asks for a run every three hours at 47 minutes past (UTC), and on weekdays also at 7 and 27 minutes past from 10:00 to 16:59, the hours in which the Euribor sources publish. GitHub starts only some scheduled runs (see "Checking it is alive"), which is why it asks so often.
 - `rates.json`: the output the website reads.
 - `webflow-footer-script.html`: the replacement for the Xano block in the Home page's footer code
   (not part of the repo; it goes into Webflow).
@@ -29,7 +29,10 @@ address, and the website's script reads it. Nothing on GitHub has any access to 
 
 ## Checking it is alive
 
-Open the Actions page above. A green tick every three hours or so means it is working. Open the rates.json address
+Open the Actions page above. Green ticks a few hours apart mean it is working. GitHub does not start every
+scheduled run: over 13 to 17 November 2026 it started 10 of the 26 the three-hourly timer asked for, on average
+8 hours apart and once 12.6 hours apart, which left Monday's Euribor fixing unpublished for three hours after
+the sources had it. The weekday midday timer was added on 17 November for that reason. Open the rates.json address
 and look at `updated`; if it is more than a day old, press "Run workflow" on the Actions page and read
 the log of that run. To move the feed to a Roscap organisation later: GitHub repository Settings >
 Transfer ownership; then change the address in the Webflow footer script to match.
