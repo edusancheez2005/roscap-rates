@@ -1,7 +1,7 @@
 {
-  "updated": "2026-11-24T02:35:46Z",
+  "updated": "2026-11-24T14:17:58Z",
   "updated_display": "24 November 2026",
-  "checked": "2026-11-24T02:35:46Z",
+  "checked": "2026-11-24T14:17:58Z",
   "stale": [],
   "rates": {
     "boe": {
@@ -15,7 +15,7 @@
       "changed_on": "2026-11-05",
       "source": "Bank of England, Bank Rate history",
       "stale": false,
-      "fetched_at": "2026-11-24T02:35:46Z"
+      "fetched_at": "2026-11-24T14:17:58Z"
     },
     "fed": {
       "name": "US Federal Funds Rate",
@@ -26,24 +26,24 @@
       "change": 0.25,
       "change_display": "+0.25%",
       "change_basis": "size of the last Federal Reserve decision",
-      "as_of": "2026-11-23",
+      "as_of": "2026-11-24",
       "changed_on": "2026-09-17",
       "source": "Federal Reserve target range, via FRED (DFEDTARU, DFEDTARL)",
       "stale": false,
-      "fetched_at": "2026-11-24T02:35:46Z"
+      "fetched_at": "2026-11-24T14:17:58Z"
     },
     "euribor": {
       "name": "EURIBOR 3-Month",
-      "value": 2.849,
-      "display": "2.849%",
-      "change": 0.002,
-      "change_display": "+0.002%",
+      "value": 2.809,
+      "display": "2.809%",
+      "change": -0.04,
+      "change_display": "-0.040%",
       "change_basis": "move since the previous daily fixing",
-      "as_of": "2026-11-20",
-      "changed_on": "2026-11-20",
+      "as_of": "2026-11-23",
+      "changed_on": "2026-11-23",
       "source": "Euribor 3-month daily fixing, via euribor-rates.eu",
       "stale": false,
-      "fetched_at": "2026-11-24T02:35:46Z"
+      "fetched_at": "2026-11-24T14:17:58Z"
     }
   },
   "notes": "Change for the Fed and Bank of England is the size of the last policy decision; for Euribor it is the move since the previous daily fixing."
